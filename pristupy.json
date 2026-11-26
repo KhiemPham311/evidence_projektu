@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "app": "evidence-projektu",
+ "data": {
+  "owner": "khiempham311",
+  "repo": "evidence_projektu_data",
+  "branch": "main",
+  "path": "data.json"
+ },
+ "users": [
+  {
+   "id": "mwxl7ov6v0enix",
+   "name": "Khiem",
+   "admin": true,
+   "added": "2026-11-26",
+   "box": {
+    "salt": "ULP5j0v99E8aAlXtk34QLg==",
+    "iter": 600000,
+    "iv": "soXlS7I6CkvyBf8K",
+    "ct": "6hLDw6VcmJ/tKiljCugMj7YbYY0thhQ5Sf1VMQ5vN6rekzLPy5GtTKwhmzI94NmE+5EXvva0TV8VdsGbF4twHSpvGKT6PKONeHiOWkaAMYqgBmpLmV5AYf1tiDWyRCwoEBkYMpCsSEOlMq2wJeCQPYzR2M0SBYwzilWUEo3QOjcSlNpQ+d4bsfS9tjf+d9t5q2gHCppLyvhFXKyQsZUYfblZgU71QLsX70NSfR6c"
+   }
+  }
+ ]
+}
