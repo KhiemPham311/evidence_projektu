@@ -2004,7 +2004,9 @@ document.addEventListener("click", e => {
   else if (a === "printVyk") { const z = zam(t.dataset.z); printDoc(vykazHtml(t.dataset.z, t.dataset.p, UI.vMon), `Vykaz_${norm(fullName(z)).replace(/[^a-z0-9]+/g, "_")}_${UI.vMon}.html`); }
   else if (a === "demo") demo();
   else if (a === "ghLogout") ghLogout();
-  else if (a === "accAdd") accDlg();
+  else if (a === "accAdd") accSave();
+  else if (a === "accNewPass") { const i = $("#ac_p1"); if (i) i.value = newPassword(); }
+  else if (a === "ghPull") { GHX.sha = null; ghPoll().then(() => toast("Načteno z GitHubu.")); }
   else if (a === "accPass") accDlg(id);
   else if (a === "accDel") { const u = GHX.acc.users.find(x => x.id === id); confirmDlg("Odebrat přístup?", `${u ? u.name : "Tento člověk"} se už nepřihlásí. Na GitHubu zruš i jeho token.`, "Odebrat", () => accRemove(id).catch(e => toast(e.message)), true); }
   else if (a === "demoAsk") confirmDlg("Načíst ukázková data?", "Současná data se nahradí ukázkovými. Pokud v evidenci máš něco svého, stáhni si nejdřív zálohu.", "Načíst ukázku", demo, true);
@@ -2049,8 +2051,21 @@ const GHX = {
   queue: [], busy: false, timer: null, poll: null, idle: null
 };
 const GH_SESS = "ep-gh-session";
+// stejně jako evidence doučování: heslo vygeneruje appka (xxxx-xxxx-xxxx), přihlášení si zařízení pamatuje
+function newPassword() {
+  const abc = "abcdefghjkmnpqrstuvwxyz23456789", out = [];
+  while (out.length < 12) { const b = crypto.getRandomValues(new Uint8Array(1))[0]; if (b < abc.length * 8) out.push(abc[b % abc.length]); }
+  return out.join("").replace(/(.{4})(?=.)/g, "$1-");
+}
+const sessStore = () => { try { return localStorage.getItem(GH_SESS) ? localStorage : sessionStorage; } catch (e) { return sessionStorage; } };
+function accessMsg(name, pass) { return `Evidence projektů SEA-l\n${location.origin}${location.pathname}\nJméno: ${name}\nHeslo: ${pass}`; }
+function accessNote(name, pass, title) {
+  const msg = accessMsg(name, pass);
+  return `<div class="note" style="margin:12px 0 0;display:grid;gap:8px"><b>${esc(title)}</b><span>Pošli mu tohle (heslo ideálně jinou cestou než odkaz):</span><pre style="margin:0;white-space:pre-wrap;font:inherit">${esc(msg)}</pre><div><button class="btn small" type="button" data-copy="${esc(msg)}">Zkopírovat</button></div><span class="sub">Heslo se nikde neukládá, potom už ho neuvidíš. Kdyby ho zapomněl/a, vytvoř mu nové.</span></div>`;
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-copy]"); if (b) navigator.clipboard.writeText(b.dataset.copy).then(() => toast("Zkopírováno.")).catch(() => toast("Kopírování nejde, označ text ručně.")); });
 const GH_IDLE_MIN = 30;
-const MIN_PASS = 12;
+const MIN_PASS = 10;
 const isGhHost = () => !window.claude && /\.github\.io$/i.test(location.hostname);
 const b64 = u8 => { let s = ""; const a = new Uint8Array(u8); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
@@ -2183,9 +2198,9 @@ async function ghPoll() {
 function paintGhIdle() { paintSync("ok", `GitHub · ${GHX.sess ? GHX.sess.name : ""}`); }
 
 /* ---------- přihlášení, odhlášení, nečinnost ---------- */
-async function startSession(name, admin, payload, cfg) {
-  GHX.sess = { name, admin, token: payload.token, keyB64: payload.key, key: await importDataKey(payload.key), cfg };
-  try { sessionStorage.setItem(GH_SESS, JSON.stringify({ name, admin, token: payload.token, key: payload.key, cfg })); } catch (e) { }
+async function startSession(name, admin, payload, cfg, remember) {
+  GHX.sess = { name, admin, token: payload.token, keyB64: payload.key, key: await importDataKey(payload.key), cfg, remember: remember !== false };
+  try { const v = JSON.stringify({ name, admin, token: payload.token, key: payload.key, cfg }); localStorage.removeItem(GH_SESS); sessionStorage.removeItem(GH_SESS); (GHX.sess.remember ? localStorage : sessionStorage).setItem(GH_SESS, v); } catch (e) { }
   paintSync("busy", "Načítám z GitHubu…");
   const cur = await readData();
   GHX.sha = cur.sha; const d = applyOps(cur.data, []); for (const c of COLLS) S[c] = d[c];
@@ -2195,12 +2210,12 @@ async function startSession(name, admin, payload, cfg) {
 }
 function ghLogout(reason) {
   if (GHX.queue.length && !reason) { toast("Počkej, ještě se ukládá…"); ghFlush(); return; }
-  try { sessionStorage.removeItem(GH_SESS); } catch (e) { }
+  try { sessionStorage.removeItem(GH_SESS); localStorage.removeItem(GH_SESS); } catch (e) { }
   GHX.sess = null; GHX.queue = []; clearInterval(GHX.poll); clearTimeout(GHX.idle);
   for (const c of COLLS) S[c] = [];
   closeDlg(); renderAll(); showLogin(reason);
 }
-function bumpIdle() { clearTimeout(GHX.idle); if (GHX.sess) GHX.idle = setTimeout(() => { if (GHX.queue.length) { ghFlush(); bumpIdle(); } else ghLogout(`Byl/a jsi odhlášen/a po ${GH_IDLE_MIN} minutách nečinnosti.`); }, GH_IDLE_MIN * 60000); }
+function bumpIdle() { clearTimeout(GHX.idle); if (GHX.sess && !GHX.sess.remember) GHX.idle = setTimeout(() => { if (GHX.queue.length) { ghFlush(); bumpIdle(); } else ghLogout(`Byl/a jsi odhlášen/a po ${GH_IDLE_MIN} minutách nečinnosti.`); }, GH_IDLE_MIN * 60000); }
 ["click", "keydown", "touchstart"].forEach(ev => document.addEventListener(ev, () => { if (GHX.sess) bumpIdle(); }, { passive: true }));
 window.addEventListener("beforeunload", e => { if (GHX.queue.length) { e.preventDefault(); e.returnValue = ""; } });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) ghPoll(); });
@@ -2213,18 +2228,22 @@ async function showLogin(msg) {
   const acc = await loadAccess();
   const users = (acc.users || []);
   if (!users.length) return showSetup(el);
-  el.innerHTML = `<div class="dialog"><h3>Přihlášení</h3>${msg ? `<p class="note">${esc(msg)}</p>` : ""}
-    <form class="form" id="lg" novalidate><label class="full">Jméno<select id="lg_name">${users.map(u => opt(u.id, u.name)).join("")}</select></label>
-    <label class="full">Heslo<input type="password" id="lg_pass" autocomplete="current-password"></label>
-    <div class="full"><button class="btn primary" type="submit" id="lg_ok">Přihlásit</button></div></form><p class="err" id="lg_err"></p>
-    <p class="hint">Data jsou šifrovaná. Bez správného hesla je nejde přečíst. Zapomenuté heslo obnoví správce (nastaví nové).</p></div>`;
-  $("#lg_pass").focus();
+  el.innerHTML = `<div class="dialog"><h3>Přihlášení</h3>${msg ? `<p class="note">${esc(msg)}</p>` : ""}<p>Jméno a heslo ti dá správce evidence. Na tomhle zařízení se pak přihlašuješ jen jednou.</p>
+    <form class="form" id="lg" novalidate><label>Jméno<input type="text" id="lg_name" autocomplete="username" autocapitalize="off"></label>
+    <label>Heslo<input type="password" id="lg_pass" autocomplete="current-password" autocapitalize="off" spellcheck="false"></label>
+    <label class="full chk"><input type="checkbox" id="lg_rem" checked> Zapamatovat přihlášení na tomto zařízení <span class="sub">(na sdíleném počítači odškrtni – pak se odhlásí po ${GH_IDLE_MIN} min nečinnosti nebo po zavření prohlížeče)</span></label>
+    <div class="full"><button class="btn primary" type="submit" id="lg_ok">Přihlásit se</button></div></form><p class="err" id="lg_err"></p></div>`;
+  $("#lg_name").focus();
   $("#lg").onsubmit = async e => {
     e.preventDefault();
-    const u = users.find(x => x.id === $("#lg_name").value), err = $("#lg_err");
-    err.textContent = "Ověřuji heslo…"; $("#lg_ok").disabled = true;
-    try { const p = await openBox($("#lg_pass").value, u.box); err.textContent = "Načítám data…"; await startSession(u.name, !!u.admin, p, acc.data); }
-    catch (ex) { err.textContent = ex && ex.name === "OperationError" ? "Špatné heslo." : (ex.message || "Přihlášení se nepovedlo."); $("#lg_ok").disabled = false; }
+    const name = val("lg_name"), pass = $("#lg_pass").value.trim(), err = $("#lg_err");
+    if (!name || !pass) { err.textContent = "Vyplň jméno i heslo."; return; }
+    err.textContent = "Ověřuji…"; $("#lg_ok").disabled = true;
+    const u = users.find(x => norm(x.name) === norm(name));
+    let p = null; if (u) { try { p = await openBox(pass, u.box); } catch (ex) { p = null; } }
+    if (!p) { err.textContent = "Špatné jméno nebo heslo."; $("#lg_ok").disabled = false; return; }
+    try { err.textContent = "Načítám data…"; await startSession(u.name, !!u.admin, p, acc.data, $("#lg_rem").checked); }
+    catch (ex) { err.textContent = ex.message || "Přihlášení se nepovedlo."; $("#lg_ok").disabled = false; }
   };
 }
 function showSetup(el) {
@@ -2234,20 +2253,19 @@ function showSetup(el) {
   <form class="form" id="su" novalidate>
     <div class="sec">Repozitář s daty (soukromý)</div>
     <label>Vlastník (uživatel GitHubu)<input type="text" id="su_owner" value="${esc(a.owner)}"></label>
-    <label>Název soukromého repozitáře<input type="text" id="su_repo" value="evidence-projektu-data"></label>
+    <label>Název soukromého repozitáře<input type="text" id="su_repo" value="${esc(a.repo + (a.repo.includes("_") ? "_data" : "-data"))}"></label>
     <div class="sec">Tvůj přístup</div>
     <label>Tvoje jméno<input type="text" id="su_name"></label>
     <label>Token (github_pat_…)<input type="password" id="su_token" autocomplete="off" spellcheck="false"></label>
-    <label>Heslo (aspoň ${MIN_PASS} znaků)<input type="password" id="su_p1" autocomplete="new-password"></label>
-    <label>Heslo znovu<input type="password" id="su_p2" autocomplete="new-password"></label>
-    <p class="hint full">Token musí mít přístup k repozitáři s daty <b>i</b> k repozitáři s appkou (<span class="mono">${esc(a.owner)}/${esc(a.repo)}</span>), oprávnění <b>Contents: Read and write</b>. Heslo si dobře zapamatuj – je klíčem k datům.</p>
+    <label class="full">Tvoje heslo (vygenerované)<span style="display:flex;gap:6px"><input type="text" id="su_p1" autocomplete="off" spellcheck="false" value="${newPassword()}"><button class="btn small" type="button" id="su_new" title="Vygenerovat jiné heslo">Nové</button></span></label>
+    <p class="hint full">Token musí mít přístup k repozitáři s daty <b>i</b> k repozitáři s appkou (<span class="mono">${esc(a.owner)}/${esc(a.repo)}</span>), oprávnění <b>Contents: Read and write</b>. Heslo si ulož (nejlépe do správce hesel) – je klíčem k datům a bez něj je nejde otevřít.</p>
     <div class="full"><button class="btn primary" type="submit" id="su_ok">Nastavit a začít</button></div></form><p class="err" id="su_err"></p></div>`;
+  $("#su_new").onclick = () => { $("#su_p1").value = newPassword(); };
   $("#su").onsubmit = async e => {
     e.preventDefault();
-    const err = $("#su_err"), cfg = { owner: val("su_owner"), repo: val("su_repo"), branch: "main", path: "data.json" }, name = val("su_name"), token = val("su_token"), p1 = $("#su_p1").value;
+    const err = $("#su_err"), cfg = { owner: val("su_owner"), repo: val("su_repo"), branch: "main", path: "data.json" }, name = val("su_name"), token = val("su_token"), p1 = val("su_p1");
     if (!cfg.owner || !cfg.repo || !name || !token) { err.textContent = "Vyplň všechna pole."; return; }
-    if (p1.length < MIN_PASS) { err.textContent = `Heslo musí mít aspoň ${MIN_PASS} znaků. Nejlepší je věta z několika slov.`; return; }
-    if (p1 !== $("#su_p2").value) { err.textContent = "Hesla se neshodují."; return; }
+    if (p1.length < MIN_PASS) { err.textContent = `Heslo musí mít aspoň ${MIN_PASS} znaků. Nech raději to vygenerované.`; return; }
     $("#su_ok").disabled = true;
     try {
       err.textContent = "Ověřuji token…";
@@ -2268,9 +2286,9 @@ function showSetup(el) {
       if (w.conflict) throw new Error("Soubor s daty se nepodařilo založit.");
       GHX.acc = { v: 1, app: "evidence-projektu", data: cfg, users: [{ id: uid(), name, admin: true, added: today(), box: await makeBox(p1, { token, key: keyB64 }) }] };
       GHX.accSha = null; await saveAccess(token, `${name}: první nastavení přístupů`);
-      err.textContent = "Hotovo, načítám…";
-      await startSession(name, true, { token, key: keyB64 }, cfg);
-      toast("Evidence je připravená. Data se ukládají zašifrovaně na GitHub.");
+      err.textContent = "";
+      $("#su").outerHTML = accessNote(name, p1, "Evidence je připravená.").replace("Pošli mu tohle (heslo ideálně jinou cestou než odkaz):", "Tvoje přihlašovací údaje – ulož si je:").replace("Kdyby ho zapomněl/a, vytvoř mu nové.", "Kdybys ho zapomněl, data už nepůjde otevřít.") + `<div class="actions"><button class="btn primary" id="su_go">Mám uloženo, pokračovat</button></div>`;
+      $("#su_go").onclick = () => startSession(name, true, { token, key: keyB64 }, cfg, true).then(() => toast("Data se ukládají zašifrovaně na GitHub."));
     } catch (ex) { GHX.sess = null; err.textContent = ex.message || "Nastavení se nepovedlo."; $("#su_ok").disabled = false; }
   };
 }
@@ -2279,41 +2297,53 @@ function showSetup(el) {
 function accessPanel() {
   if (mode !== "gh" || !GHX.sess) return "";
   const s = GHX.sess, users = (GHX.acc && GHX.acc.users) || [];
-  return `<div class="panel"><h3>Účet a přístupy</h3><p>Přihlášen/a jako <b>${esc(s.name)}</b>${s.admin ? " (správce)" : ""}. Data jsou v soukromém repozitáři <span class="mono">${esc(s.cfg.owner)}/${esc(s.cfg.repo)}</span>, zašifrovaná. Po ${GH_IDLE_MIN} minutách nečinnosti nebo po zavření prohlížeče se appka odhlásí.</p>
-  <div class="chips"><button class="btn" data-act="ghLogout">Odhlásit</button></div>
-  ${s.admin ? `<div class="sheet" style="margin-top:12px">${users.map(u => `<div class="row r-acc"><span class="name">${esc(u.name)}${u.admin ? ` <span class="pill tag">správce</span>` : ""}</span><span class="sub">přidán/a ${esc(fmtD(u.added))}</span><button class="btn small" data-act="accPass" data-id="${u.id}">Nové heslo</button>${u.name === s.name ? "<span></span>" : `<button class="btn small danger" data-act="accDel" data-id="${u.id}">Odebrat</button>`}</div>`).join("")}</div>
-  <div class="chips" style="margin-top:10px"><button class="btn primary" data-act="accAdd">+ Přidat člověka</button></div>
-  <p class="hint">Každý člověk má vlastní token z GitHubu (fine-grained, jen repozitář s daty, Contents: Read and write, s expirací). Když někoho odebereš, zruš na GitHubu i jeho token.</p>` : ""}</div>`;
+  return `<div class="panel"><h3>Přihlášen(a) jako ${esc(s.name)}${s.admin ? " (správce)" : ""}</h3><p>Data se ukládají zašifrovaně do souboru data.json v soukromém repozitáři <span class="mono">${esc(s.cfg.owner)}/${esc(s.cfg.repo)}</span>. Každá změna je uložená v historii. Appka každých 45 s načte změny ostatních.</p>
+  <p class="sub">${s.remember ? "Přihlášení si pamatuje toto zařízení. Na sdíleném počítači se po práci odhlas." : `Na tomto zařízení se odhlásí po ${GH_IDLE_MIN} min nečinnosti nebo po zavření prohlížeče.`}</p>
+  <div class="actions" style="justify-content:flex-start"><button class="btn" data-act="ghPull">Načíst změny</button><button class="btn danger" data-act="ghLogout">Odhlásit</button></div></div>
+  ${s.admin ? `<div class="panel"><h3>Přístupy pro další lidi</h3>
+  <p>Ředitel, zástupce a další se přihlásí jen jménem a heslem. Každému na GitHubu vytvoř vlastní token (stejně jako svůj, jen pro <span class="mono">${esc(s.cfg.repo)}</span>). Appka ho zašifruje jeho heslem a uloží do souboru pristupy.json vedle appky.</p>
+  <div class="sheet">${users.map(u => `<div class="row r-acc"><span class="name">${esc(u.name)}${u.admin ? ` <span class="pill tag">správce</span>` : ""}</span><span class="sub">přístup od ${esc(fmtD(u.added))}</span><button class="btn small" data-act="accPass" data-id="${u.id}">Nové heslo</button>${u.name === s.name ? "<span></span>" : `<button class="btn small danger" data-act="accDel" data-id="${u.id}">Odebrat</button>`}</div>`).join("")}</div>
+  <form class="form" id="accForm" novalidate style="margin-top:12px">
+    <label>Jméno, kterým se přihlásí<input type="text" id="ac_name" autocomplete="off" placeholder="např. Ředitel"></label>
+    <label>Heslo (vygenerované)<span style="display:flex;gap:6px"><input type="text" id="ac_p1" autocomplete="off" spellcheck="false" value="${newPassword()}"><button class="btn small" type="button" data-act="accNewPass" title="Vygenerovat jiné heslo">Nové</button></span></label>
+    <label class="full">Token pro tohoto člověka (github_pat_…)<input type="password" id="ac_token" autocomplete="off" spellcheck="false"></label>
+    <label class="full chk"><input type="checkbox" id="ac_admin"> správce (může přidávat a odebírat lidi; jeho token musí mít přístup i k repozitáři s appkou)</label>
+    <div class="full"><button class="btn primary" type="button" data-act="accAdd">Vytvořit přístup</button></div></form><p class="err" id="ac_err"></p><div id="ac_res"></div>
+  <p class="hint">Když někoho odebereš, zruš na GitHubu i jeho token.</p></div>` : ""}`;
+}
+async function accSave(uidEdit) {
+  const s = GHX.sess, inDlg = !!uidEdit, err = $(inDlg ? "#acd_err" : "#ac_err");
+  const u = uidEdit ? GHX.acc.users.find(x => x.id === uidEdit) : null;
+  const name = u ? u.name : val("ac_name"), pass = val(inDlg ? "acd_p1" : "ac_p1"); let token = val(inDlg ? "acd_token" : "ac_token");
+  if (!name) { err.textContent = "Vyplň jméno."; return; }
+  if (!u && GHX.acc.users.some(x => norm(x.name) === norm(name))) { err.textContent = `Přístup pro jméno „${name}“ už existuje. Zvol jiné jméno, nebo ten starý nejdřív odeber.`; return; }
+  if (pass.length < MIN_PASS) { err.textContent = `Heslo musí mít aspoň ${MIN_PASS} znaků. Nech raději to vygenerované.`; return; }
+  if (u && !token && u.name === s.name) token = s.token;
+  if (!token) { err.textContent = u ? "Zadej token tohoto člověka (starý nejde bez jeho hesla přečíst)." : "Vyplň token pro tohoto člověka."; return; }
+  err.textContent = "Ověřuji token…";
+  try {
+    const c = s.cfg, r = await ghFetch(`https://api.github.com/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}`, { headers: ghHead(token), cache: "no-store" });
+    if (!r.ok) { err.textContent = `Token pro ${name} k repozitáři ${c.repo} nefunguje. Zkontroluj, že má vybraný ${c.repo} a Contents: Read and write.`; return; }
+    const tj = await r.json(); if (tj.permissions && tj.permissions.push === false) { err.textContent = "Token má jen čtení. Dej mu Contents: Read and write."; return; }
+    err.textContent = "Ukládám přístup…";
+    await loadAccess(s.token);
+    const box = await makeBox(pass, { token, key: s.keyB64 });
+    if (u) { const t = GHX.acc.users.find(x => x.id === u.id); if (t) t.box = box; }
+    else GHX.acc.users.push({ id: uid(), name, admin: $("#ac_admin").checked, added: today(), box });
+    await saveAccess(s.token, u ? `Nové heslo: ${name}` : `Přístup do evidence: ${name}`);
+    err.textContent = "";
+    if (inDlg) { $("#acd_body").innerHTML = accessNote(name, pass, `Nové heslo pro ${name} je hotové.`); $("#acd_ok").remove(); $("#acd_x").textContent = "Zavřít"; renderAll(); }
+    else { renderAll(); const res = $("#ac_res"); if (res) res.innerHTML = accessNote(name, pass, `Přístup pro ${name} je hotový.`); }
+  } catch (ex) { err.textContent = ex.message || "Uložení přístupu se nepovedlo."; }
 }
 function accDlg(uidEdit) {
-  const u = uidEdit ? GHX.acc.users.find(x => x.id === uidEdit) : null;
-  openDlg(`<h3>${u ? "Nové heslo – " + esc(u.name) : "Přidat člověka"}</h3><form class="form" id="ac" novalidate>
-    ${u ? "" : `<label>Jméno<input type="text" id="ac_name"></label><label class="chk" style="align-self:end"><input type="checkbox" id="ac_admin"> správce (může přidávat lidi)</label>`}
-    <label class="full">Token tohoto člověka (github_pat_…)${u ? " – nechej prázdné, pokud se nemění" : ""}<input type="password" id="ac_token" autocomplete="off" spellcheck="false"></label>
-    <label>Heslo (aspoň ${MIN_PASS} znaků)<input type="password" id="ac_p1" autocomplete="new-password"></label><label>Heslo znovu<input type="password" id="ac_p2" autocomplete="new-password"></label>
-    <p class="hint full">Heslo mu předej osobně, ne e-mailem spolu s odkazem na appku.</p></form><p class="err" id="ac_err"></p>
-    <div class="actions"><button class="btn" id="ac_x">Zrušit</button><button class="btn primary" id="ac_ok">Uložit</button></div>`, false, u ? "#ac_token" : "#ac_name");
-  $("#ac_x").onclick = closeDlg;
-  $("#ac_ok").onclick = async () => {
-    const err = $("#ac_err"), s = GHX.sess, p1 = $("#ac_p1").value; let token = val("ac_token");
-    if (!u && !val("ac_name")) { err.textContent = "Vyplň jméno."; return; }
-    if (!u && GHX.acc.users.some(x => norm(x.name) === norm(val("ac_name")))) { err.textContent = "Člověk s tímto jménem už přístup má."; return; }
-    if (p1.length < MIN_PASS) { err.textContent = `Heslo musí mít aspoň ${MIN_PASS} znaků.`; return; }
-    if (p1 !== $("#ac_p2").value) { err.textContent = "Hesla se neshodují."; return; }
-    if (u && !token) { if (u.name !== s.name) { err.textContent = "Pro změnu hesla jiného člověka zadej i jeho token (starý nejde bez jeho hesla přečíst)."; return; } token = s.token; }
-    if (!token) { err.textContent = "Vyplň token."; return; }
-    $("#ac_ok").disabled = true; err.textContent = "Ověřuji token…";
-    try {
-      const c = s.cfg, r = await ghFetch(`${contentsUrl(c.owner, c.repo, c.path)}?ref=${c.branch}`, { headers: ghHead(token) });
-      if (!r.ok) throw await ghErr(r, "Token nemá přístup k datům");
-      await loadAccess(s.token);
-      const box = await makeBox(p1, { token, key: s.keyB64 });
-      if (u) { const t = GHX.acc.users.find(x => x.id === u.id); if (t) t.box = box; }
-      else GHX.acc.users.push({ id: uid(), name: val("ac_name"), admin: $("#ac_admin").checked, added: today(), box });
-      await saveAccess(s.token, `${s.name}: ${u ? "nové heslo pro " + u.name : "přidán přístup " + val("ac_name")}`);
-      closeDlg(); renderAll(); toast(u ? "Heslo změněno." : "Přístup přidán.");
-    } catch (ex) { err.textContent = ex.message || "Nepovedlo se."; $("#ac_ok").disabled = false; }
-  };
+  const u = GHX.acc.users.find(x => x.id === uidEdit); if (!u) return;
+  openDlg(`<h3>Nové heslo – ${esc(u.name)}</h3><div id="acd_body"><form class="form" novalidate onsubmit="return false">
+    <label class="full">Heslo (vygenerované)<span style="display:flex;gap:6px"><input type="text" id="acd_p1" autocomplete="off" spellcheck="false" value="${newPassword()}"><button class="btn small" type="button" id="acd_new">Nové</button></span></label>
+    <label class="full">Token tohoto člověka (github_pat_…)${u.name === GHX.sess.name ? " – nech prázdné, pokud se nemění" : ""}<input type="password" id="acd_token" autocomplete="off" spellcheck="false"></label></form><p class="err" id="acd_err"></p></div>
+    <div class="actions"><button class="btn" id="acd_x">Zrušit</button><button class="btn primary" id="acd_ok">Uložit</button></div>`, false, "#acd_token");
+  $("#acd_new").onclick = () => { $("#acd_p1").value = newPassword(); };
+  $("#acd_x").onclick = closeDlg; $("#acd_ok").onclick = () => accSave(uidEdit);
 }
 async function accRemove(id) {
   const s = GHX.sess; await loadAccess(s.token);
@@ -2323,8 +2353,9 @@ async function accRemove(id) {
   renderAll(); toast(`Přístup odebrán. Zruš na GitHubu i token pro ${u.name}.`);
 }
 async function ghBoot() {
-  let sv = null; try { sv = JSON.parse(sessionStorage.getItem(GH_SESS) || "null"); } catch (e) { }
-  if (sv) { try { await loadAccess(sv.token); await startSession(sv.name, sv.admin, { token: sv.token, key: sv.key }, sv.cfg); return; } catch (e) { try { sessionStorage.removeItem(GH_SESS); } catch (x) { } } }
+  let sv = null;
+  let remember = false; try { remember = !!localStorage.getItem(GH_SESS); sv = JSON.parse(localStorage.getItem(GH_SESS) || sessionStorage.getItem(GH_SESS) || "null"); } catch (e) { }
+  if (sv) { try { await loadAccess(sv.token); await startSession(sv.name, sv.admin, { token: sv.token, key: sv.key }, sv.cfg, remember); return; } catch (e) { if (/token|odmítl|oprávnění|nenalezen/i.test(e.message || "")) { try { sessionStorage.removeItem(GH_SESS); localStorage.removeItem(GH_SESS); } catch (x) { } showLogin(e.message); return; } paintSync("err", "GitHub nedostupný"); toast(e.message || "Nejde se spojit s GitHubem."); return; } }
   showLogin();
 }
 
