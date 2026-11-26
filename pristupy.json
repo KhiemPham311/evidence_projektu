@@ -19,6 +19,18 @@
     "iv": "soXlS7I6CkvyBf8K",
     "ct": "6hLDw6VcmJ/tKiljCugMj7YbYY0thhQ5Sf1VMQ5vN6rekzLPy5GtTKwhmzI94NmE+5EXvva0TV8VdsGbF4twHSpvGKT6PKONeHiOWkaAMYqgBmpLmV5AYf1tiDWyRCwoEBkYMpCsSEOlMq2wJeCQPYzR2M0SBYwzilWUEo3QOjcSlNpQ+d4bsfS9tjf+d9t5q2gHCppLyvhFXKyQsZUYfblZgU71QLsX70NSfR6c"
    }
+  },
+  {
+   "id": "mwxlcc2m9rf7rk",
+   "name": "Jirka",
+   "admin": false,
+   "added": "2026-11-26",
+   "box": {
+    "salt": "MZdfZtCGOH/T85n7YIQ5xw==",
+    "iter": 600000,
+    "iv": "fdcReMBnV8xEsRRh",
+    "ct": "Qw/GqXCobvisgaRXhQT6ArEy4+T18XBYTMWdEljv0PdOY0YN8iHF01elQAUPX9YtI+udviLt6QFfSLf3G7P0YlxKLE6CIjKOaxzy3aj9N2CCUXfUyZBbl/adw7gmTWFNLNVFD00hZxWk1JAkExK0GTYkoztkXsJMsvoMxaM9SUmGvCfi5M0TJY7NWnu1Cp5mMZt5zKDEqBhe079+74eVCo9X0nYzEBWbEE4ky3Ap"
+   }
   }
  ]
 }
